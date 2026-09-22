@@ -8,6 +8,9 @@ const { execFile } = require("child_process");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const SERVER_URL =
+  "https://video-render-server-mclh.onrender.com";
+
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 
@@ -27,7 +30,9 @@ function run(command, args) {
       { maxBuffer: 20 * 1024 * 1024 },
       (error, stdout, stderr) => {
         if (error) {
-          reject(new Error(stderr || error.message));
+          reject(
+            new Error(stderr || error.message)
+          );
           return;
         }
 
@@ -49,27 +54,47 @@ function updateJob(id, data) {
   });
 }
 
-async function renderVideo(id, script, language) {
-  const jobFolder = path.join(renderDir, id);
+async function renderVideo(
+  id,
+  script,
+  language
+) {
+  const jobFolder = path.join(
+    renderDir,
+    id
+  );
 
-  fs.mkdirSync(jobFolder, { recursive: true });
+  fs.mkdirSync(jobFolder, {
+    recursive: true
+  });
 
   try {
     updateJob(id, {
       status: "preparing",
       progress: 5,
-      message: "Preparing video..."
+      message:
+        "Preparing video..."
     });
 
     const clips = [];
 
-    for (let i = 0; i < script.scenes.length; i++) {
+    for (
+      let i = 0;
+      i < script.scenes.length;
+      i++
+    ) {
       const scene = script.scenes[i];
 
       updateJob(id, {
         status: "rendering",
-        progress: 10 + Math.round((i / script.scenes.length) * 70),
-        message: `Rendering scene ${i + 1} of ${script.scenes.length}...`
+        progress:
+          10 +
+          Math.round(
+            (i / script.scenes.length) *
+              70
+          ),
+        message:
+          `Rendering scene ${i + 1} of ${script.scenes.length}...`
       });
 
       const sceneNumber = String(
@@ -99,9 +124,16 @@ async function renderVideo(id, script, language) {
         scene.visualPrompt || ""
       ].join("\n");
 
-      fs.writeFileSync(textPath, text, "utf8");
+      fs.writeFileSync(
+        textPath,
+        text,
+        "utf8"
+      );
 
-      const voice = language === "bn" ? "bn" : "en-us";
+      const voice =
+        language === "bn"
+          ? "bn"
+          : "en-us";
 
       await run("espeak-ng", [
         "-v",
@@ -152,7 +184,8 @@ async function renderVideo(id, script, language) {
     updateJob(id, {
       status: "rendering",
       progress: 85,
-      message: "Joining scenes..."
+      message:
+        "Joining scenes..."
     });
 
     const concatFile = path.join(
@@ -166,7 +199,13 @@ async function renderVideo(id, script, language) {
     );
 
     const concatContent = clips
-      .map(file => `file '${file.replaceAll("'", "'\\''")}'`)
+      .map(
+        file =>
+          `file '${file.replaceAll(
+            "'",
+            "'\\''"
+          )}'`
+      )
       .join("\n");
 
     fs.writeFileSync(
@@ -192,8 +231,10 @@ async function renderVideo(id, script, language) {
     updateJob(id, {
       status: "completed",
       progress: 100,
-      message: "Your MP4 is ready.",
-      downloadUrl: `/api/video-renders/${id}/download`
+      message:
+        "Your MP4 is ready.",
+      downloadUrl:
+        `${SERVER_URL}/api/video-renders/${id}/download`
     });
 
   } catch (error) {
@@ -202,80 +243,118 @@ async function renderVideo(id, script, language) {
     updateJob(id, {
       status: "failed",
       progress: 100,
-      message: "Video rendering failed.",
-      error: error.message
+      message:
+        "Video rendering failed.",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unknown rendering error."
     });
   }
 }
 
 app.get("/", (req, res) => {
   res.json({
-    name: "AI Educational Video Render Server",
+    name:
+      "AI Educational Video Render Server",
     status: "running"
   });
 });
 
-app.post("/api/video-renders", (req, res) => {
-  const {
-    script,
-    language = "en"
-  } = req.body;
-
-  if (!script || !Array.isArray(script.scenes)) {
-    return res.status(400).json({
-      error: "A valid video script with scenes is required."
-    });
-  }
-
-  const id = crypto.randomUUID();
-
-  const job = {
-    renderId: id,
-    status: "preparing",
-    progress: 0,
-    message: "Render job queued.",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-
-  jobs.set(id, job);
-
-  renderVideo(
-    id,
-    script,
-    language
-  );
-
-  res.status(202).json(job);
+app.get("/api/healthz", (req, res) => {
+  res.json({
+    status: "ok"
+  });
 });
 
-app.get("/api/video-renders/:id", (req, res) => {
-  const job = jobs.get(req.params.id);
+app.post(
+  "/api/video-renders",
+  (req, res) => {
+    const {
+      script,
+      language = "en"
+    } = req.body;
 
-  if (!job) {
-    return res.status(404).json({
-      error: "Render job not found."
-    });
+    if (
+      !script ||
+      !Array.isArray(script.scenes)
+    ) {
+      return res.status(400).json({
+        error:
+          "A valid video script with scenes is required."
+      });
+    }
+
+    const id = crypto.randomUUID();
+
+    const now =
+      new Date().toISOString();
+
+    const job = {
+      renderId: id,
+      scriptId:
+        script.id || null,
+      status: "preparing",
+      progress: 0,
+      message:
+        "Render job queued.",
+      createdAt: now,
+      updatedAt: now
+    };
+
+    jobs.set(id, job);
+
+    renderVideo(
+      id,
+      script,
+      language
+    );
+
+    res.status(202).json(job);
   }
+);
 
-  res.json(job);
-});
+app.get(
+  "/api/video-renders/:id",
+  (req, res) => {
+    const job = jobs.get(
+      req.params.id
+    );
+
+    if (!job) {
+      return res.status(404).json({
+        error:
+          "Render job not found."
+      });
+    }
+
+    res.json(job);
+  }
+);
 
 app.get(
   "/api/video-renders/:id/download",
   (req, res) => {
-    const job = jobs.get(req.params.id);
+    const job = jobs.get(
+      req.params.id
+    );
 
     if (!job) {
       return res
         .status(404)
-        .send("Render job not found.");
+        .send(
+          "Render job not found."
+        );
     }
 
-    if (job.status !== "completed") {
+    if (
+      job.status !== "completed"
+    ) {
       return res
         .status(409)
-        .send("Video is not ready yet.");
+        .send(
+          "Video is not ready yet."
+        );
     }
 
     const filePath = path.join(
@@ -287,7 +366,9 @@ app.get(
     if (!fs.existsSync(filePath)) {
       return res
         .status(404)
-        .send("MP4 file not found.");
+        .send(
+          "MP4 file not found."
+        );
     }
 
     res.download(
@@ -302,3 +383,4 @@ app.listen(PORT, () => {
     `Video Render Server running on port ${PORT}`
   );
 });
+      
