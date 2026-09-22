@@ -1,0 +1,13 @@
+{
+  "name": "video-render-server",
+  "version": "1.0.0",
+  "description": "MP4 video render server for AI Educational Video Maker",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "cors": "^2.8.5"
+  }
+}
